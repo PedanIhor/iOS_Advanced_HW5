@@ -8,10 +8,10 @@
 
 import Foundation
 import GitHubAPI
-шьзщке 
+import Combine
 
 protocol RepositoriesServiceInput {
-  func countGitHubRepositoriesStatistics(handler: @escaping (RepositoriesStatistics) -> Void)
+  func countGitHubRepositoriesStatistics() -> AnyPublisher<RepositoriesStatistics, DiagramsError>
 }
 
 struct RepositoriesStatistics {
@@ -27,44 +27,27 @@ struct RepositoriesStatistics {
 }
 
 final class RepositoriesService: RepositoriesServiceInput {
-  func countGitHubRepositoriesStatistics(handler: @escaping (RepositoriesStatistics) -> Void) {
-    let group = DispatchGroup()
-    var swiftCount: Int = 0
-    var objcCount: Int = 0
-    var kotlinCount: Int = 0
+  private var bag: [AnyCancellable] = []
+  
+  func countGitHubRepositoriesStatistics() -> AnyPublisher<RepositoriesStatistics, DiagramsError> {
+    let swiftFuture = futureForSearchQuery(q: "Swift")
+    let objcFuture = futureForSearchQuery(q: "Objective-C")
+    let kotlinFuture = futureForSearchQuery(q: "Kotlin")
     
-    group.enter()
-    RepositoriesAPI.searchRepositories(q: "Swift") { (list, error) in
-      if list != nil {
-        swiftCount = list!.totalCount ?? 0
-      } else if error != nil {
-        print("GitHub Swift failed")
+    return Publishers.Zip3(swiftFuture, objcFuture, kotlinFuture)
+      .compactMap { .init(objectiveC: $0.1, swift: $0.0, kotlin: $0.2) }
+      .eraseToAnyPublisher()
+  }
+  
+  private func futureForSearchQuery(q: String) -> Future<Int, DiagramsError> {
+    Future<Int, DiagramsError> { promise in
+      RepositoriesAPI.searchRepositories(q: q) { (list, error) in
+        if list != nil {
+          promise(.success(list!.totalCount ?? 0))
+        } else if error != nil {
+          promise(.failure(.gitHubService(error!.localizedDescription)))
+        }
       }
-      group.leave()
-    }
-    
-    group.enter()
-    RepositoriesAPI.searchRepositories(q: "Objective-C") { (list, error) in
-      if list != nil {
-        objcCount = list!.totalCount ?? 0
-      } else if error != nil {
-        print("GitHub Objective-C failed")
-      }
-      group.leave()
-    }
-    
-    group.enter()
-    RepositoriesAPI.searchRepositories(q: "Kotlin") { (list, error) in
-      if list != nil {
-        kotlinCount = list!.totalCount ?? 0
-      } else if error != nil {
-        print("GitHub Kotlin failed")
-      }
-      group.leave()
-    }
-    
-    group.notify(queue: .main) {
-      handler(.init(objectiveC: objcCount, swift: swiftCount, kotlin: kotlinCount))
     }
   }
 }

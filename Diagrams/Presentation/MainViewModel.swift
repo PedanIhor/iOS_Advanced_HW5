@@ -14,6 +14,7 @@ final class MainViewModel: ObservableObject {
   @Published var pieData = RepositoriesStatistics.zero
   @Published var barData = ArticlesStatistics.zero
   
+  private var bag: [AnyCancellable] = []
   private let repositoriesService: RepositoriesServiceInput
   private let articlesService: ArticlesServiceInput
   
@@ -22,9 +23,16 @@ final class MainViewModel: ObservableObject {
     self.repositoriesService = repositoriesService
     self.articlesService = articlesService
     
-    repositoriesService.countGitHubRepositoriesStatistics { [weak self] (stats) in
-      self?.pieData = stats
-    }
+    repositoriesService.countGitHubRepositoriesStatistics()
+      .sink(
+        receiveCompletion: { print($0) },
+        receiveValue: { [unowned self] value in self.pieData = value }
+    )
+      .store(in: &bag)
+    
+//    repositoriesService.countGitHubRepositoriesStatistics { [weak self] (stats) in
+//      self?.pieData = stats
+//    }
     
     articlesService.countArticlesStatistics { [weak self] (stats) in
       self?.barData = stats
