@@ -8,9 +8,10 @@
 
 import Foundation
 import News
+import Combine
 
 protocol ArticlesServiceInput {
-  func countArticlesStatistics(handler: @escaping (ArticlesStatistics) -> Void)
+  func countArticlesStatistics() -> AnyPublisher<ArticlesStatistics, DiagramsError>
 }
 
 struct ArticlesStatistics {
@@ -34,50 +35,25 @@ final class ArticlesService: ArticlesServiceInput {
     return formatter.string(from: Date())
   }()
   
-  func countArticlesStatistics(handler: @escaping (ArticlesStatistics) -> Void) {
-    let group = DispatchGroup()
-    var appleCount: Int = 0
-    var bitcoinCount: Int = 0
-    var nginxCount: Int = 0
+  func countArticlesStatistics() -> AnyPublisher<ArticlesStatistics, DiagramsError> {
+    let appleFuture = futureForSearchQuery(q: "apple")
+    let bitcoinFuture = futureForSearchQuery(q: "bitcoin")
+    let nginxFuture = futureForSearchQuery(q: "nginx")
 
-    group.enter()
-    ArticlesAPI.everythingGet(q: "apple", from: currentDate, sortBy: "publishedAt", apiKey: apiKey) { (list, error) in
-      if list != nil {
-        appleCount = list!.totalResults ?? 0
-      } else if error != nil {
-        print("News apple failed")
-        print(error!.localizedDescription)
-        print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
+    return Publishers.Zip3(appleFuture, bitcoinFuture, nginxFuture)
+      .compactMap { ArticlesStatistics(apple: $0.0, bitcoin: $0.1, nginx: $0.2) }
+      .eraseToAnyPublisher()
+  }
+  
+  private func futureForSearchQuery(q: String) -> Future<Int, DiagramsError> {
+    Future<Int, DiagramsError> { [unowned self] promise in
+      ArticlesAPI.everythingGet(q: q, from: self.currentDate, sortBy: "publishedAt", apiKey: self.apiKey) { (list, error) in
+        if list != nil {
+          promise(.success(list!.totalResults ?? 0))
+        } else if error != nil {
+          promise(.failure(.newsService(error!.localizedDescription)))
+        }
       }
-      group.leave()
-    }
-
-    group.enter()
-    ArticlesAPI.everythingGet(q: "bitcoin", from: currentDate, sortBy: "publishedAt", apiKey: apiKey) { (list, error) in
-      if list != nil {
-        bitcoinCount = list!.totalResults ?? 0
-      } else if error != nil {
-        print("News bitcoin failed")
-        print(error!.localizedDescription)
-        print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
-      }
-      group.leave()
-    }
-
-    group.enter()
-    ArticlesAPI.everythingGet(q: "nginx", from: currentDate, sortBy: "publishedAt", apiKey: apiKey) { (list, error) in
-      if list != nil {
-        nginxCount = list!.totalResults ?? 0
-      } else if error != nil {
-        print("News nginx failed")
-        print(error!.localizedDescription)
-        print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
-      }
-      group.leave()
-    }
-
-    group.notify(queue: .main) {
-      handler(.init(apple: appleCount, bitcoin: bitcoinCount, nginx: nginxCount))
     }
   }
 }
